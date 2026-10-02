@@ -294,7 +294,34 @@ def provide_plots(filename:str,trace_name1:str,trace_name2:str)->Image:
     },
 )
 def create_schematic_file(filename: str,content: str) -> str:
-    schematic_path = _storage_file(f"{filename}.asc")
+    schematic_name = Path(filename).name
+    if Path(schematic_name).suffix.lower() == ".asc":
+        schematic_name = Path(schematic_name).stem + ".asc"
+    else:
+        schematic_name = f"{schematic_name}.asc"
+
+    if not schematic_name or schematic_name == ".asc":
+        return "Error creating LTspice schematic: filename must not be empty."
+
+    if not content.lstrip().startswith("Version 4"):
+        return (
+            "Error creating LTspice schematic: content must be a complete LTspice "
+            "schematic beginning with 'Version 4'."
+        )
+
+    if "SHEET " not in content or not any(
+        line.startswith("SYMBOL ") for line in content.splitlines()
+    ):
+        return (
+            "Error creating LTspice schematic: content must include a SHEET line "
+            "and at least one SYMBOL definition."
+        )
+
+    try:
+        schematic_path = _storage_file(schematic_name)
+    except ValueError as error:
+        return f"Error creating LTspice schematic: {error}"
+
     try:
         with open(schematic_path, "w", encoding="utf-8") as f:
             f.write(content)
@@ -304,27 +331,7 @@ def create_schematic_file(filename: str,content: str) -> str:
     finally:
         if not os.path.exists(schematic_path):
             return f"Error: Failed to create LTspice schematic at {schematic_path}."
-    ltspice_executable = Path(os.environ.get("LTSPICE_PATH", DEFAULT_LTSPICE_PATH))
-    if not ltspice_executable.is_file():
-            return (
-                f"Error: LTspice executable was not found at {ltspice_executable}. "
-                f"Set LTSPICE_PATH to the full path of LTspice.exe."
-            )
-    cmd = [str(ltspice_executable), "run", str(schematic_path)]
-    try:
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
-        log_path = schematic_path.with_suffix(".log")
-        log_content = ""
-        if os.path.exists(log_path):
-            with open(log_path, "r", encoding="utf-8") as log_file:
-                log_content = log_file.read()
-                    
-        return f"Simulation completed successfully.\n\nLog output:\n{log_content}"
-            
-    except subprocess.CalledProcessError as e:
-        return f"LTspice execution failed with exit code {e.returncode}.\nStderr: {e.stderr}"
-    except Exception as e:
-        return f"An error occurred: {str(e)}"
+    return f"LTspice schematic created successfully at {schematic_path}"
 
 if __name__ == "__main__":
     mcp.run()
