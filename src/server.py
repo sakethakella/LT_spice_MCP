@@ -87,7 +87,6 @@ def _storage_file(name: str) -> Path:
         "openWorldHint": False
     }
 )
-
 def run_simulation(file_name:str, net_file:str)->str:
     """
     Execute an LTspice simulation using a supplied SPICE netlist.
@@ -153,7 +152,6 @@ def run_simulation(file_name:str, net_file:str)->str:
             Examples include 'time', 'V(in)', 'V(out)', and 'I(R1)'.
         """
 )
-
 def list_traces(filename:str)->list:
     raw_path = _storage_file(f"{filename}.raw")
 
@@ -241,17 +239,92 @@ def provide_plots(filename:str,trace_name1:str,trace_name2:str)->Image:
     ax.set_ylabel(trace_name1)
     ax.set_title(f"LTspice: {trace_name1} vs {trace_name2}")
     ax.grid(True)
-
     # Only show legend when there are multiple steps
     if len(steps) > 1:
         ax.legend()
-
     fig.tight_layout()
     fig.savefig(png_path, dpi=200, bbox_inches="tight")
-
     plt.close(fig)
-
     return Image(path=png_path)
+
+@mcp.tool(
+    name="create_schematic_file",
+    title="Create LTspice Schematic File",
+    description="""
+        Create an LTspice .asc schematic file from validated schematic content.
+
+        Use this tool only after the corresponding circuit netlist has been
+        successfully validated and, preferably, simulated.
+
+        The content argument must contain complete LTspice schematic (.asc) text
+        including component definitions, wire definitions, text directives, and
+        other required schematic metadata.
+
+        The generated file can be opened in LTspice as a graphical schematic,
+        allowing the user to inspect, edit, and continue working on the circuit.
+
+        IMPORTANT:
+        - The schematic content must describe the same circuit that was verified
+        in the corresponding SPICE netlist.
+        - Do not invent or modify circuit connectivity when converting a verified
+        netlist into a schematic.
+        - Preserve line breaks and the exact schematic syntax supplied.
+        - The filename should be a valid LTspice schematic filename.
+        - This tool creates the schematic file; it does not run the simulation.
+
+        Returns:
+            The path of the successfully created .asc file.
+            If file creation fails, an error message is returned.
+            """,
+    tags={
+        "ltspice",
+        "schematic",
+        "electronics",
+        "vlsi",
+        "circuit-design",
+    },
+    meta={
+        "application": "LTspice",
+        "domain": "electronic_design_automation",
+        "artifact_type": "schematic",
+        "file_extension": ".asc",
+        "workflow_stage": "post_simulation",
+        "editable_by_user": True,
+        "simulation_engine": "LTspice",
+    },
+)
+def create_schematic_file(filename: str,content: str) -> str:
+    schematic_path = _storage_file(f"{filename}.asc")
+    try:
+        with open(schematic_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+    except Exception as e:
+        return f"Error creating LTspice schematic: {str(e)}"
+    finally:
+        if not os.path.exists(schematic_path):
+            return f"Error: Failed to create LTspice schematic at {schematic_path}."
+    ltspice_executable = Path(os.environ.get("LTSPICE_PATH", DEFAULT_LTSPICE_PATH))
+    if not ltspice_executable.is_file():
+            return (
+                f"Error: LTspice executable was not found at {ltspice_executable}. "
+                f"Set LTSPICE_PATH to the full path of LTspice.exe."
+            )
+    cmd = [str(ltspice_executable), "run", str(schematic_path)]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        log_path = schematic_path.with_suffix(".log")
+        log_content = ""
+        if os.path.exists(log_path):
+            with open(log_path, "r", encoding="utf-8") as log_file:
+                log_content = log_file.read()
+                    
+        return f"Simulation completed successfully.\n\nLog output:\n{log_content}"
+            
+    except subprocess.CalledProcessError as e:
+        return f"LTspice execution failed with exit code {e.returncode}.\nStderr: {e.stderr}"
+    except Exception as e:
+        return f"An error occurred: {str(e)}"
 
 if __name__ == "__main__":
     mcp.run()
